@@ -9,7 +9,7 @@ export default function Home() {
     async function loadData() {
       try {
         const response = await fetch(
-          `${process.env.NEXT_PUBLIC_API_URL}/changedRoute`
+          `${"http://localhost:8000"}/changedRoute`
         );
 
         const data = await response.json();
