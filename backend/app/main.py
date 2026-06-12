@@ -4,12 +4,35 @@ import fitz
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from openai import OpenAI
 import os
+import psycopg2
+
+# Lazy DB connection: create on first use so imports don't fail when DB is down
+conn = None
+
+def get_conn():
+    global conn
+    if conn is not None:
+        return conn
+
+    host = os.getenv("DB_HOST", "localhost")
+    database = os.getenv("DB_NAME", "app_db")
+    user = os.getenv("DB_USER", "postgres")
+    password = os.getenv("DB_PASSWORD", "904689Pt")
+
+    conn = psycopg2.connect(
+        host=host,
+        database=database,
+        user=user,
+        password=password,
+    )
+
+    return conn
 
 app = FastAPI()
 
 api_key = os.getenv("OPENAI_API_KEY")
 
-client = OpenAI()
+client = OpenAI(api_key=api_key)
 
 splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
 
@@ -56,6 +79,40 @@ def createEmbeddings(chunk):
     )
 
     return response.data[0].embedding
+
+def storeEmbeddings(chunks, document_name):
+    conn_local = get_conn()
+    for chunk in chunks:
+        cursor = conn_local.cursor()
+        embedding = createEmbeddings(chunk['chunk'])
+
+        cursor.execute(
+            """
+            INSERT INTO document_chunks
+            (
+                document_name,
+                page_number,
+                chunk_text,
+                embedding
+            )
+            VALUES (%s, %s, %s, %s)
+            """,
+            (
+                document_name,
+                chunk["page"],
+                chunk["chunk"],
+                embedding
+            )
+        )
+        conn_local.commit()
+
+def processPDF(pdf_path):
+    pages = extract_text(pdf_path)
+    chunks = chunkPages(pages)
+    storeEmbeddings(chunks, pdf_path)
+
+    return len(chunks)
+    
 
 
 @app.get("/changedRoute")
