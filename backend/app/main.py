@@ -2,12 +2,17 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import fitz
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from openai import OpenAI
 import os
 import psycopg2
+from dotenv import load_dotenv
+from sentence_transformers import SentenceTransformer
+
+load_dotenv()
 
 # Lazy DB connection: create on first use so imports don't fail when DB is down
 conn = None
+
+model = SentenceTransformer("BAAI/bge-small-en-v1.5")
 
 def get_conn():
     global conn
@@ -29,10 +34,6 @@ def get_conn():
     return conn
 
 app = FastAPI()
-
-api_key = os.getenv("OPENAI_API_KEY")
-
-client = OpenAI(api_key=api_key)
 
 splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
 
@@ -73,12 +74,8 @@ def chunkPages(pages):
     return chunks
 
 def createEmbeddings(chunk):
-    response = client.embeddings.create(
-        input=chunk,
-        model="text-embedding-3-small"
-    )
-
-    return response.data[0].embedding
+    embedding = model.encode(chunk)
+    return embedding.tolist()
 
 def storeEmbeddings(chunks, document_name):
     conn_local = get_conn()
