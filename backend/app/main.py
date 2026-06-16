@@ -39,7 +39,7 @@ splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=[os.getenv("FRONTEND_HOST")],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

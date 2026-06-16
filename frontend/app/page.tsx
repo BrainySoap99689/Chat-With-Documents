@@ -1,6 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import dotenv from "dotenv";
+
+dotenv.config();
 
 export default function Home() {
   const [message, setMessage] = useState("Loading...");
@@ -9,7 +12,7 @@ export default function Home() {
     async function loadData() {
       try {
         const response = await fetch(
-          `${"http://localhost:8000"}/changedRoute`
+          `${process.env.BACKEND_HOST}/changedRoute`
         );
 
         const data = await response.json();
