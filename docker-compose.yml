@@ -16,7 +16,6 @@ services:
       - ./backend/app:/app/app
     environment:
       DATABASE_URL: postgresql://postgres:example@db:5432/app_db
-      OPENAI_API_KEY: ${OPENAI_API_KEY}
     ports:
       - "8000:8000"
     depends_on:
