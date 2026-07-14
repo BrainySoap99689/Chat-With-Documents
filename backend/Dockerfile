@@ -16,4 +16,4 @@ RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTr
 # Copy frequently changing application code last
 COPY . .
 
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

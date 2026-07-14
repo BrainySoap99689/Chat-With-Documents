@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 import fitz
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -9,33 +9,7 @@ from sentence_transformers import SentenceTransformer
 
 load_dotenv()
 
-# Lazy DB connection: create on first use so imports don't fail when DB is down
-conn = None
-
-model = SentenceTransformer("BAAI/bge-small-en-v1.5")
-
-def get_conn():
-    global conn
-    if conn is not None:
-        return conn
-
-    host = os.getenv("DB_HOST", "localhost")
-    database = os.getenv("DB_NAME", "app_db")
-    user = os.getenv("DB_USER", "postgres")
-    password = os.getenv("DB_PASSWORD", "904689Pt")
-
-    conn = psycopg2.connect(
-        host=host,
-        database=database,
-        user=user,
-        password=password,
-    )
-
-    return conn
-
 app = FastAPI()
-
-splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
 
 app.add_middleware(
     CORSMiddleware,
@@ -44,6 +18,54 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Lazy DB connection: create on first use so imports don't fail when DB is down
+conn = None
+
+model = SentenceTransformer("BAAI/bge-small-en-v1.5")
+
+def get_conn():
+    host = os.getenv("DB_HOST")
+    database = os.getenv("DB_NAME")
+    user = os.getenv("DB_USER")
+    password = os.getenv("DB_PASSWORD")
+
+    return psycopg2.connect(
+        host=host,
+        database=database,
+        user=user,
+        password=password,
+    )
+
+
+
+splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+
+@app.get("/documents")
+async def get_documents():
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("SELECT document_name FROM document_names ORDER BY id DESC LIMIT 10;")
+    documents = [row[0] for row in cursor.fetchall()]
+    cursor.close()
+    conn.close()
+    return documents
+
+def check_db(pdf_path):
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        SELECT EXISTS ( 
+            SELECT 1 FROM document_names WHERE document_name = %s
+            
+        )""",
+        (pdf_path,)
+    )
+    ans = cursor.fetchone()[0]
+    cursor.close()
+    conn.close()
+    return ans
 
 def extract_text(pdf_path):
     doc = fitz.open(pdf_path)
@@ -78,9 +100,9 @@ def createEmbeddings(chunk):
     return embedding.tolist()
 
 def storeEmbeddings(chunks, document_name):
-    conn_local = get_conn()
+    conn = get_conn()
     for chunk in chunks:
-        cursor = conn_local.cursor()
+        cursor = conn.cursor()
         embedding = createEmbeddings(chunk['chunk'])
 
         cursor.execute(
@@ -101,17 +123,49 @@ def storeEmbeddings(chunks, document_name):
                 embedding
             )
         )
-        conn_local.commit()
+        conn.commit()
+    cursor.close()
+    conn.close()
+def trackDocuments(pdf_path):
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        INSERT INTO document_names
+        (
+            document_name
+        )
+        VALUES (%s)
+        """,
+        (pdf_path,)
+    )
+    conn.commit()
+    cursor.close()
+    conn.close()
 
 def processPDF(pdf_path):
     pages = extract_text(pdf_path)
     chunks = chunkPages(pages)
     storeEmbeddings(chunks, pdf_path)
+    trackDocuments(pdf_path)
 
     return len(chunks)
     
+@app.post("/upload")
+async def upload_pdf(file: UploadFile = File(...)):
+    # Save the uploaded file to a temporary location
+    temp_file_path = f"temp_{file.filename}"
+    check = check_db(temp_file_path)
+    if check:
+        return {"Error Message": f"{file.filename} has already been uploaded."}
+    else:
+        with open(temp_file_path, "wb") as f:
+            f.write(await file.read())
 
+        # Process the PDF and store embeddings
+        num_chunks = processPDF(file.filename)
 
-@app.get("/changedRoute")
-def home():
-    return {"message": "Woah this is cool!"}
+        # Clean up the temporary file
+        os.remove(temp_file_path)
+
+        return {"message": f"Processed {num_chunks} chunks from {file.filename}"}
